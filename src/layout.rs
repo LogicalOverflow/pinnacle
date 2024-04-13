@@ -93,9 +93,6 @@ impl State {
             }
         }
 
-        let mut pending_wins = Vec::<(WindowElement, Serial)>::new();
-        let mut non_pending_wins = Vec::<(Point<i32, Logical>, WindowElement)>::new();
-
         for win in windows_on_foc_tags.iter() {
             if win.with_state(|state| state.target_loc.is_some()) {
                 match win.underlying_surface() {
@@ -111,12 +108,11 @@ impl State {
                         });
 
                         if pending {
-                            pending_wins.push((win.clone(), toplevel.send_configure()))
-                        } else {
-                            let loc = win.with_state_mut(|state| state.target_loc.take());
-                            if let Some(loc) = loc {
-                                non_pending_wins.push((loc, win.clone()));
-                            }
+                            toplevel.send_configure()
+                        }
+                        let loc = win.with_state_mut(|state| state.target_loc.take());
+                        if let Some(loc) = loc {
+                            self.space.map_element(win.clone(), loc, false);
                         }
                     }
                     WindowSurface::X11(_) => {
@@ -129,9 +125,6 @@ impl State {
             }
         }
 
-        for (loc, window) in non_pending_wins {
-            self.space.map_element(window, loc, false);
-        }
 
         self.fixup_z_layering();
     }

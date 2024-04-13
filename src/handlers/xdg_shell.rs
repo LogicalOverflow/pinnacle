@@ -318,23 +318,6 @@ impl XdgShellHandler for State {
         // }
     }
 
-    fn ack_configure(&mut self, surface: WlSurface, configure: Configure) {
-        match configure {
-            Configure::Toplevel(_configure) => {
-                // TODO: shold this use the data corresponding to the configure
-                // instead of the current target_loc?
-                if let Some(win) = self.window_for_surface(&surface) {
-                    if let Some(loc) = win.with_state_mut(|state| state.target_loc.take()) {
-                        self.space.map_element(win.clone(), loc, false);
-                    }
-                }
-            }
-            Configure::Popup(_configure) => {
-                // TODO: does anything need to happen here?
-            }
-        }
-    }
-
     // TODO: impl the rest of the fns in XdgShellHandler
 }
 delegate_xdg_shell!(State);
