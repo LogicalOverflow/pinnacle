@@ -126,12 +126,9 @@ impl CompositorHandler for State {
         }
 
         if !compositor::is_sync_subsurface(surface) {
-            tracing::debug!("not is_sync_subsurface");
             if let Some(window) = self.window_for_surface(&root) {
-                tracing::debug!("window commit");
                 window.on_commit();
                 if let Some(loc) = window.with_state_mut(|state| state.target_loc.take()) {
-                    tracing::debug!("syncing location");
                     self.space.map_element(window.clone(), loc, false);
                 }
             }

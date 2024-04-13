@@ -14,10 +14,11 @@ use smithay::{
     },
     utils::{Serial, SERIAL_COUNTER},
     wayland::{
-        compositor, seat::WaylandFocus, shell::xdg::{
+        seat::WaylandFocus,
+        shell::xdg::{
             Configure, PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler,
             XdgShellState,
-        }
+        },
     },
 };
 use tracing::trace;
@@ -322,26 +323,11 @@ impl XdgShellHandler for State {
             Configure::Toplevel(_configure) => {
                 // TODO: shold this use the data corresponding to the configure
                 // instead of the current target_loc?
-
-                        let pending = compositor::with_states(&surface, |states| {
-                            states
-                                .data_map
-                                .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
-                                .expect("XdgToplevelSurfaceData wasn't in surface's data map")
-                                .lock()
-                                .expect("Failed to lock Mutex<XdgToplevelSurfaceData>")
-                                .has_pending_changes()
-                        });
-                tracing::debug!("ack (pending = {}) for surf = {:?}", pending, &surface);
                 if let Some(win) = self.window_for_surface(&surface) {
-                    tracing::debug!("ack for win = {:?}", &win);
-
-                    // win.send_frame(output, time, throttle, primary_scan_out_output);
-                    /* if let Some(loc) = win.with_state_mut(|state| state.target_loc.take()) {
+                    if let Some(loc) = win.with_state_mut(|state| state.target_loc.take()) {
                         self.space.map_element(win.clone(), loc, false);
-                    }) */
+                    }
                 }
-
             }
             Configure::Popup(_configure) => {
                 // TODO: does anything need to happen here?
