@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, time::Duration};
 
 use pinnacle_api_defs::pinnacle::layout::v0alpha1::{layout_request::Geometries, LayoutResponse};
 use smithay::{
-    desktop::{layer_map_for_output, WindowSurface},
-    output::Output,
-    utils::{Logical, Point, Rectangle, Serial},
-    wayland::{compositor, shell::xdg::XdgToplevelSurfaceData},
+    desktop::{layer_map_for_output, utils::surface_primary_scanout_output, WindowSurface}, input::keyboard::KeyboardTarget, output::Output, utils::{Logical, Point, Rectangle, Serial}, wayland::{compositor, seat::WaylandFocus, shell::xdg::XdgToplevelSurfaceData}
 };
 use tokio::sync::mpsc::UnboundedSender;
 use tonic::Status;
@@ -111,8 +108,16 @@ impl State {
                         });
 
                         if pending {
-                            pending_wins.push((win.clone(), toplevel.send_configure()))
+                            tracing::debug!("pending: win = {:?}, surf = {:?}", &win, &win.wl_surface());
+                            pending_wins.push((win.clone(), toplevel.send_configure()));
+                            win.send_frame(
+                                &output,
+                                self.clock.now(),
+                                Some(Duration::ZERO),
+                                surface_primary_scanout_output,
+                            );
                         } else {
+                            tracing::debug!("non-pending: win = {:?}, surf = {:?}", &win, &win.wl_surface());
                             let loc = win.with_state_mut(|state| state.target_loc.take());
                             if let Some(loc) = loc {
                                 non_pending_wins.push((loc, win.clone()));
