@@ -7,17 +7,17 @@ use smithay::{
     input::{pointer::Focus, Seat},
     output::Output,
     reexports::{
-        wayland_protocols::xdg::shell::server::xdg_toplevel::{self, ResizeEdge},
-        wayland_server::{
-            protocol::{wl_output::WlOutput, wl_seat::WlSeat},
+        input::ffi::libinput_config_accel_profile, wayland_protocols::xdg::shell::server::xdg_toplevel::{self, ResizeEdge}, wayland_server::{
+            protocol::{wl_output::WlOutput, wl_seat::WlSeat, wl_surface::WlSurface},
             Resource,
-        },
+        }
     },
     utils::{Serial, SERIAL_COUNTER},
     wayland::{
         seat::WaylandFocus,
         shell::xdg::{
-            PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
+            Configure, PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler,
+            XdgShellState,
         },
     },
 };
@@ -316,6 +316,23 @@ impl XdgShellHandler for State {
         // if let Some(window) = self.window_for_surface(surface.wl_surface()) {
         //     self.space.unmap_elem(&window);
         // }
+    }
+
+    fn ack_configure(&mut self, surface: WlSurface, configure: Configure) {
+        match configure {
+            Configure::Toplevel(_configure) => {
+                // TODO: shold this use the data corresponding to the configure
+                // instead of the current target_loc?
+                if let Some(win) = self.window_for_surface(&surface) {
+                    if let Some(loc) = win.with_state_mut(|state| state.target_loc.take()) {
+                        self.space.map_element(win.clone(), loc, false);
+                    }
+                }
+            }
+            Configure::Popup(_configure) => {
+                // TODO: does anything need to happen here?
+            }
+        }
     }
 
     // TODO: impl the rest of the fns in XdgShellHandler
