@@ -4,7 +4,7 @@ mod inner {
     use pinnacle_api::window::rules::{WindowRule, WindowRuleCondition};
     use pinnacle_api::ApiModules;
 
-    #[pinnacle_api::config]
+    #[pinnacle_api::config(internal_tracing = false)]
     async fn main() {
         let ApiModules {
             layout,

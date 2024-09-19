@@ -281,22 +281,29 @@ impl Pinnacle {
         config_dir: PathBuf,
         cli: Option<Cli>,
     ) -> anyhow::Result<Self> {
-        let socket = ListeningSocketSource::new_auto()?;
-        let socket_name = socket.socket_name().to_os_string();
+        // wlcs does not need the wayland socket (afaict) and repeatedly spawn
+        // new clients, with old sockets not being cleaned up (fast enough),
+        // leading to all 32 wayland sockets being filled up and the remaining
+        // tests failing, so we just don't do sockets
+        #[cfg(not(feature = "wlcs"))]
+        {
+            let socket = ListeningSocketSource::new_auto()?;
+            let socket_name = socket.socket_name().to_os_string();
 
-        info!(
-            "Setting WAYLAND_DISPLAY to {}",
-            socket_name.to_string_lossy()
-        );
-        std::env::set_var("WAYLAND_DISPLAY", socket_name);
+            info!(
+                "Setting WAYLAND_DISPLAY to {}",
+                socket_name.to_string_lossy()
+            );
+            std::env::set_var("WAYLAND_DISPLAY", socket_name);
 
-        loop_handle.insert_source(socket, |stream, _metadata, state| {
-            state
-                .pinnacle
-                .display_handle
-                .insert_client(stream, Arc::new(ClientState::default()))
-                .expect("Could not insert client into loop handle");
-        })?;
+            loop_handle.insert_source(socket, |stream, _metadata, state| {
+                state
+                    .pinnacle
+                    .display_handle
+                    .insert_client(stream, Arc::new(ClientState::default()))
+                    .expect("Could not insert client into loop handle");
+            })?;
+        }
 
         let display_handle = display.handle();
 
