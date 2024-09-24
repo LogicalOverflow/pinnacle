@@ -9,6 +9,7 @@ use std::{
 };
 
 use crate::{
+    api::DeviceFilter,
     focus::{keyboard::KeyboardFocusTarget, pointer::PointerFocusTarget},
     state::{Pinnacle, WithState},
     window::WindowElement,
@@ -120,8 +121,13 @@ pub struct InputState {
         UnboundedSender<Result<SetMousebindResponse, tonic::Status>>,
     >,
     //--------------------------------------------------
+    /// Settings to apply to libinput devices.  Only the last pair in the
+    /// vector, which has a filter matching the given device, should be applied
+    /// to the device.  When adding a new entry to the end of one of the
+    /// vectors, elements before it with more specific filters should be removed.
     #[allow(clippy::type_complexity)]
-    pub libinput_settings: HashMap<Discriminant<Setting>, Box<dyn Fn(&mut input::Device) + Send>>,
+    pub libinput_settings:
+        HashMap<Discriminant<Setting>, Vec<(DeviceFilter, Box<dyn Fn(&mut input::Device) + Send>)>>,
     /// All libinput devices that have been connected
     pub libinput_devices: Vec<input::Device>,
 

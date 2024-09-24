@@ -20,8 +20,13 @@ impl Pinnacle {
             return;
         }
 
-        for setting in self.input_state.libinput_settings.values() {
-            setting(&mut device);
+        for settings in self.input_state.libinput_settings.values() {
+            for (filter, setting) in settings.iter().rev() {
+                if filter.matches_device(&device) {
+                    setting(&mut device);
+                    break;
+                }
+            }
         }
 
         self.input_state.libinput_devices.push(device);

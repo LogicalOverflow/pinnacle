@@ -8,7 +8,9 @@ use pinnacle_api_defs::pinnacle::{
     self,
     input::v0alpha1::{
         input_service_server,
-        set_libinput_setting_request::{AccelProfile, ClickMethod, ScrollMethod, TapButtonMap},
+        set_libinput_setting_request::{
+            AccelProfile, ClickMethod, ScrollMethod, SetLibinputSettingDeviceFilter, TapButtonMap,
+        },
         set_mousebind_request::MouseEdge,
         KeybindDescription, KeybindDescriptionsRequest, KeybindDescriptionsResponse, Modifier,
         SetKeybindRequest, SetKeybindResponse, SetLibinputSettingRequest, SetMousebindRequest,
@@ -467,6 +469,8 @@ impl input_service_server::InputService for InputService {
         let discriminant = std::mem::discriminant(&setting);
 
         use pinnacle_api_defs::pinnacle::input::v0alpha1::set_libinput_setting_request::Setting;
+        // TODO(lgcl): check if the required capabilities for the setting are
+        // present in each one
         let apply_setting: Box<dyn Fn(&mut libinput::Device) + Send> = match setting {
             Setting::AccelProfile(profile) => {
                 let profile = AccelProfile::try_from(profile).unwrap_or(AccelProfile::Unspecified);
@@ -592,11 +596,16 @@ impl input_service_server::InputService for InputService {
                 apply_setting(device);
             }
 
-            state
+            let settings = state
                 .pinnacle
                 .input_state
                 .libinput_settings
-                .insert(discriminant, apply_setting);
+                .entry(discriminant)
+                .or_default();
+
+            let filter: DeviceFilter = request.filter.into();
+            settings.retain(|(f, _)| !(f < &filter));
+            settings.push((filter, apply_setting));
         })
         .await
     }
@@ -624,6 +633,89 @@ impl input_service_server::InputService for InputService {
             }
         })
         .await
+    }
+}
+
+// TODO(lgcl): Add capability (device.has_capability) filter (repeatable?)
+#[derive(PartialEq)]
+pub struct DeviceFilter {
+    pub id_vendor: Option<u32>,
+    pub id_product: Option<u32>,
+    pub name: Option<String>,
+}
+
+impl From<SetLibinputSettingDeviceFilter> for DeviceFilter {
+    fn from(value: SetLibinputSettingDeviceFilter) -> Self {
+        Self {
+            id_vendor: value.id_vendor,
+            id_product: value.id_product,
+            name: value.name,
+        }
+    }
+}
+
+// The implemented order is such that a < b implies, that for any device d
+// a.matches_device(d) implies b.matches_device(d).  This is used to keep the
+// device settings vectors minimal: We apply only the first setting with a
+// matching filter.  As such if a setting s1 with a filter f1 occurs with a
+// second setting s2 with a filter f2, where f2 < f1, the second setting s2 can
+// be safely discarded.
+impl PartialOrd for DeviceFilter {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        // TODO(lgcl): make this code less horrendous
+        fn cmp_helper<T: PartialEq>(
+            lhs: &Option<T>,
+            rhs: &Option<T>,
+        ) -> Option<std::cmp::Ordering> {
+            match (lhs, rhs) {
+                (Some(_), None) => Some(std::cmp::Ordering::Less),
+                (None, Some(_)) => Some(std::cmp::Ordering::Greater),
+                (None, None) => Some(std::cmp::Ordering::Equal),
+                (Some(l), Some(r)) if l == r => Some(std::cmp::Ordering::Equal),
+                (Some(_), Some(_)) => None,
+            }
+        }
+
+        fn merge_ord(
+            lhs: Option<std::cmp::Ordering>,
+            rhs: Option<std::cmp::Ordering>,
+        ) -> Option<std::cmp::Ordering> {
+            match lhs {
+                Some(std::cmp::Ordering::Equal) => rhs,
+                Some(std::cmp::Ordering::Less) if rhs != Some(std::cmp::Ordering::Greater) => rhs,
+                Some(std::cmp::Ordering::Greater) if rhs != Some(std::cmp::Ordering::Less) => rhs,
+                _ => None,
+            }
+        }
+
+        merge_ord(
+            merge_ord(
+                cmp_helper(&self.id_vendor, &other.id_vendor),
+                cmp_helper(&self.id_product, &other.id_product),
+            ),
+            cmp_helper(&self.name, &other.name),
+        )
+    }
+}
+
+impl DeviceFilter {
+    pub fn matches_device(&self, device: &libinput::Device) -> bool {
+        if let Some(id_vendor) = self.id_vendor {
+            if id_vendor != device.id_vendor() {
+                return false;
+            }
+        }
+        if let Some(id_product) = self.id_product {
+            if id_product != device.id_product() {
+                return false;
+            }
+        }
+        if let Some(name) = &self.name {
+            if name != device.name() {
+                return false;
+            }
+        }
+        true
     }
 }
 

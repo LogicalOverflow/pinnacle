@@ -141,6 +141,14 @@ message SetLibinputSettingRequest {
     // Enable or disable tap-to-click
     bool tap = 16;
   }
+
+  message SetLibinputSettingDeviceFilter {
+    optional uint32 id_vendor = 1;
+    optional uint32 id_product = 2;
+    optional string name = 3;
+  }
+
+  required SetLibinputSettingDeviceFilter filter = 64;
 }
 
 message SetXcursorRequest {

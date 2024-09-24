@@ -12,7 +12,9 @@ use num_enum::TryFromPrimitive;
 use pinnacle_api_defs::pinnacle::input::{
     self,
     v0alpha1::{
-        set_libinput_setting_request::{CalibrationMatrix, Setting},
+        set_libinput_setting_request::{
+            CalibrationMatrix, SetLibinputSettingDeviceFilter, Setting,
+        },
         KeybindDescriptionsRequest, SetKeybindRequest, SetLibinputSettingRequest,
         SetMousebindRequest, SetRepeatRateRequest, SetXcursorRequest, SetXkbConfigRequest,
     },
@@ -376,6 +378,7 @@ impl Input {
 
         if let Err(err) = block_on_tokio(crate::input().set_libinput_setting(
             SetLibinputSettingRequest {
+                filter: SetLibinputSettingDeviceFilter::default(),
                 setting: Some(setting),
             },
         )) {
