@@ -65,6 +65,16 @@ message SetRepeatRateRequest {
   optional int32 delay = 2;
 }
 
+enum DeviceCapability {
+  KEYBOARD = 1;
+  POINTER = 2;
+  TOUCH = 3;
+  TABLET_TOOL = 4;
+  TABLET_PAD = 5;
+  GESTURE = 6;
+  SWITCH = 7;
+}
+
 message SetLibinputSettingRequest {
   // Pointer acceleration profile
   enum AccelProfile {
@@ -146,6 +156,7 @@ message SetLibinputSettingRequest {
     optional uint32 id_vendor = 1;
     optional uint32 id_product = 2;
     optional string name = 3;
+    repeated DeviceCapability capabilities = 4;
   }
 
   required SetLibinputSettingDeviceFilter filter = 64;

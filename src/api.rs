@@ -7,7 +7,7 @@ use std::{ffi::OsString, pin::Pin, process::Stdio};
 use pinnacle_api_defs::pinnacle::{
     self,
     input::v0alpha1::{
-        input_service_server,
+        self, input_service_server,
         set_libinput_setting_request::{
             AccelProfile, ClickMethod, ScrollMethod, SetLibinputSettingDeviceFilter, TapButtonMap,
         },
@@ -44,7 +44,10 @@ use smithay::{
     backend::renderer::TextureFilter,
     input::keyboard::XkbConfig,
     output::Scale,
-    reexports::{calloop, input as libinput},
+    reexports::{
+        calloop,
+        input::{self as libinput, DeviceCapability},
+    },
 };
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
 use tokio::{
@@ -462,15 +465,20 @@ impl input_service_server::InputService for InputService {
     ) -> Result<Response<()>, Status> {
         let request = request.into_inner();
 
+        let filter: DeviceFilter = request.filter.try_into()?;
+
         let setting = request
             .setting
             .ok_or_else(|| Status::invalid_argument("no setting specified"))?;
 
         let discriminant = std::mem::discriminant(&setting);
+        // TODO(lgcl): shoud we add a reset all settings endpoint?
 
         use pinnacle_api_defs::pinnacle::input::v0alpha1::set_libinput_setting_request::Setting;
-        // TODO(lgcl): check if the required capabilities for the setting are
-        // present in each one
+        // TODO(lgcl): should we check if the required capabilities for the
+        // setting are present in each one? or do we just let users select
+        // devices using capabilites filter and hope they make a good choice?
+        // (if adding this filtering, optmially purging filters becomes harder
         let apply_setting: Box<dyn Fn(&mut libinput::Device) + Send> = match setting {
             Setting::AccelProfile(profile) => {
                 let profile = AccelProfile::try_from(profile).unwrap_or(AccelProfile::Unspecified);
@@ -603,7 +611,6 @@ impl input_service_server::InputService for InputService {
                 .entry(discriminant)
                 .or_default();
 
-            let filter: DeviceFilter = request.filter.into();
             settings.retain(|(f, _)| !(f < &filter));
             settings.push((filter, apply_setting));
         })
@@ -636,21 +643,37 @@ impl input_service_server::InputService for InputService {
     }
 }
 
-// TODO(lgcl): Add capability (device.has_capability) filter (repeatable?)
 #[derive(PartialEq)]
 pub struct DeviceFilter {
     pub id_vendor: Option<u32>,
     pub id_product: Option<u32>,
     pub name: Option<String>,
+    pub capabilites: Vec<DeviceCapability>,
 }
 
-impl From<SetLibinputSettingDeviceFilter> for DeviceFilter {
-    fn from(value: SetLibinputSettingDeviceFilter) -> Self {
-        Self {
+impl TryFrom<SetLibinputSettingDeviceFilter> for DeviceFilter {
+    type Error = Status;
+
+    fn try_from(value: SetLibinputSettingDeviceFilter) -> Result<Self, Self::Error> {
+        Ok(Self {
             id_vendor: value.id_vendor,
             id_product: value.id_product,
             name: value.name,
-        }
+            capabilites: value
+                .capabilities
+                .iter()
+                .map(|cap| match v0alpha1::DeviceCapability::try_from(*cap) {
+                    Ok(v0alpha1::DeviceCapability::Keyboard) => Ok(DeviceCapability::Keyboard),
+                    Ok(v0alpha1::DeviceCapability::Pointer) => Ok(DeviceCapability::Pointer),
+                    Ok(v0alpha1::DeviceCapability::Touch) => Ok(DeviceCapability::Touch),
+                    Ok(v0alpha1::DeviceCapability::TabletTool) => Ok(DeviceCapability::TabletTool),
+                    Ok(v0alpha1::DeviceCapability::TabletPad) => Ok(DeviceCapability::TabletPad),
+                    Ok(v0alpha1::DeviceCapability::Gesture) => Ok(DeviceCapability::Gesture),
+                    Ok(v0alpha1::DeviceCapability::Switch) => Ok(DeviceCapability::Switch),
+                    Err(_) => Err(Status::invalid_argument("invalid device capability")),
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        })
     }
 }
 
@@ -663,6 +686,7 @@ impl From<SetLibinputSettingDeviceFilter> for DeviceFilter {
 impl PartialOrd for DeviceFilter {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // TODO(lgcl): make this code less horrendous
+        // TODO(lgcl): test this, pls
         fn cmp_helper<T: PartialEq>(
             lhs: &Option<T>,
             rhs: &Option<T>,
@@ -676,25 +700,33 @@ impl PartialOrd for DeviceFilter {
             }
         }
 
-        fn merge_ord(
-            lhs: Option<std::cmp::Ordering>,
-            rhs: Option<std::cmp::Ordering>,
-        ) -> Option<std::cmp::Ordering> {
-            match lhs {
-                Some(std::cmp::Ordering::Equal) => rhs,
-                Some(std::cmp::Ordering::Less) if rhs != Some(std::cmp::Ordering::Greater) => rhs,
-                Some(std::cmp::Ordering::Greater) if rhs != Some(std::cmp::Ordering::Less) => rhs,
-                _ => None,
-            }
-        }
+        let self_leq = self
+            .capabilites
+            .iter()
+            .all(|cap| other.capabilites.contains(cap));
+        let other_leq = other
+            .capabilites
+            .iter()
+            .all(|cap| self.capabilites.contains(cap));
+        let init = match (self_leq, other_leq) {
+            (true, true) => Some(std::cmp::Ordering::Equal),
+            (true, false) => Some(std::cmp::Ordering::Less),
+            (false, true) => Some(std::cmp::Ordering::Greater),
+            (false, false) => None,
+        };
 
-        merge_ord(
-            merge_ord(
-                cmp_helper(&self.id_vendor, &other.id_vendor),
-                cmp_helper(&self.id_product, &other.id_product),
-            ),
+        vec![
+            cmp_helper(&self.id_vendor, &other.id_vendor),
+            cmp_helper(&self.id_product, &other.id_product),
             cmp_helper(&self.name, &other.name),
-        )
+        ]
+        .into_iter()
+        .fold(init, |lhs, rhs| match (lhs, rhs) {
+            (lhs, rhs) if lhs == rhs => lhs,
+            (Some(std::cmp::Ordering::Equal), other) => other,
+            (other, Some(std::cmp::Ordering::Equal)) => other,
+            _ => None,
+        })
     }
 }
 
@@ -715,7 +747,9 @@ impl DeviceFilter {
                 return false;
             }
         }
-        true
+        self.capabilites
+            .iter()
+            .any(|cap| device.has_capability(*cap))
     }
 }
 
