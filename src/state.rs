@@ -76,7 +76,6 @@ use smithay::{
             xdg::{decoration::XdgDecorationState, XdgShellState},
         },
         shm::ShmState,
-        socket::ListeningSocketSource,
         tablet_manager::TabletManagerState,
         viewporter::ViewporterState,
         xdg_activation::XdgActivationState,
@@ -89,7 +88,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::Mutex,
     time::Duration,
 };
 use sysinfo::{ProcessRefreshKind, RefreshKind};

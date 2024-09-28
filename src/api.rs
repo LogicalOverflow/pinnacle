@@ -472,7 +472,9 @@ impl input_service_server::InputService for InputService {
             .ok_or_else(|| Status::invalid_argument("no setting specified"))?;
 
         let discriminant = std::mem::discriminant(&setting);
-        // TODO(lgcl): shoud we add a reset all settings endpoint?
+        // TODO(lgcl): should we add a reset all settings endpoint? this is
+        // already possible by calling this endpoint with an empty filter and
+        // the default value for each setting
 
         use pinnacle_api_defs::pinnacle::input::v0alpha1::set_libinput_setting_request::Setting;
         // TODO(lgcl): should we check if the required capabilities for the
@@ -611,7 +613,7 @@ impl input_service_server::InputService for InputService {
                 .entry(discriminant)
                 .or_default();
 
-            settings.retain(|(f, _)| !(f < &filter));
+            settings.retain(|(f, _)| !filter.covers_filter(f));
             settings.push((filter, apply_setting));
         })
         .await
@@ -677,59 +679,6 @@ impl TryFrom<SetLibinputSettingDeviceFilter> for DeviceFilter {
     }
 }
 
-// The implemented order is such that a < b implies, that for any device d
-// a.matches_device(d) implies b.matches_device(d).  This is used to keep the
-// device settings vectors minimal: We apply only the first setting with a
-// matching filter.  As such if a setting s1 with a filter f1 occurs with a
-// second setting s2 with a filter f2, where f2 < f1, the second setting s2 can
-// be safely discarded.
-impl PartialOrd for DeviceFilter {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // TODO(lgcl): make this code less horrendous
-        // TODO(lgcl): test this, pls
-        fn cmp_helper<T: PartialEq>(
-            lhs: &Option<T>,
-            rhs: &Option<T>,
-        ) -> Option<std::cmp::Ordering> {
-            match (lhs, rhs) {
-                (Some(_), None) => Some(std::cmp::Ordering::Less),
-                (None, Some(_)) => Some(std::cmp::Ordering::Greater),
-                (None, None) => Some(std::cmp::Ordering::Equal),
-                (Some(l), Some(r)) if l == r => Some(std::cmp::Ordering::Equal),
-                (Some(_), Some(_)) => None,
-            }
-        }
-
-        let self_leq = self
-            .capabilites
-            .iter()
-            .all(|cap| other.capabilites.contains(cap));
-        let other_leq = other
-            .capabilites
-            .iter()
-            .all(|cap| self.capabilites.contains(cap));
-        let init = match (self_leq, other_leq) {
-            (true, true) => Some(std::cmp::Ordering::Equal),
-            (true, false) => Some(std::cmp::Ordering::Less),
-            (false, true) => Some(std::cmp::Ordering::Greater),
-            (false, false) => None,
-        };
-
-        vec![
-            cmp_helper(&self.id_vendor, &other.id_vendor),
-            cmp_helper(&self.id_product, &other.id_product),
-            cmp_helper(&self.name, &other.name),
-        ]
-        .into_iter()
-        .fold(init, |lhs, rhs| match (lhs, rhs) {
-            (lhs, rhs) if lhs == rhs => lhs,
-            (Some(std::cmp::Ordering::Equal), other) => other,
-            (other, Some(std::cmp::Ordering::Equal)) => other,
-            _ => None,
-        })
-    }
-}
-
 impl DeviceFilter {
     pub fn matches_device(&self, device: &libinput::Device) -> bool {
         if let Some(id_vendor) = self.id_vendor {
@@ -750,6 +699,18 @@ impl DeviceFilter {
         self.capabilites
             .iter()
             .any(|cap| device.has_capability(*cap))
+    }
+
+    /// Returns true, if any device the given filter acceps is also accepted by
+    /// this filter.
+    pub fn covers_filter(&self, other: &Self) -> bool {
+        (other.id_vendor.is_none() || other.id_vendor == self.id_vendor)
+            && (other.id_product.is_none() || other.id_product == self.id_product)
+            && (other.name.is_none() || other.name == self.name)
+            && other
+                .capabilites
+                .iter()
+                .all(|cap| self.capabilites.contains(cap))
     }
 }
 
